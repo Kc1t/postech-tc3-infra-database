@@ -13,6 +13,11 @@ resource "random_password" "db" {
   special = false
 }
 
+data "aws_kms_alias" "rds" {
+  name = "alias/aws/rds"
+}
+
+# tfsec:ignore:aws-ssm-secret-use-customer-key O Learner Lab nao permite criar CMK; a chave gerenciada da AWS e a unica disponivel.
 resource "aws_secretsmanager_secret" "db" {
   name = "${local.name}-db-credentials"
   tags = local.tags
@@ -50,9 +55,16 @@ resource "aws_db_instance" "this" {
 
   backup_retention_period = var.environment == "prod" ? 7 : 1
   skip_final_snapshot     = var.environment != "prod"
-  deletion_protection     = var.environment == "prod"
 
-  performance_insights_enabled    = true
+  # tfsec:ignore:aws-rds-enable-deletion-protection Ligada em prod; desligada em staging de proposito, para o terraform destroy do fim de cada sessao do lab.
+  deletion_protection = var.environment == "prod"
+
+  iam_database_authentication_enabled = true
+
+  performance_insights_enabled          = true
+  performance_insights_kms_key_id       = data.aws_kms_alias.rds.target_key_arn
+  performance_insights_retention_period = 7
+
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
   tags = local.tags

@@ -13,22 +13,16 @@ resource "aws_db_subnet_group" "this" {
 }
 
 resource "aws_security_group" "this" {
-  name   = "${local.name}-sg"
-  vpc_id = var.vpc_id
+  name        = "${local.name}-sg"
+  description = "Acesso PostgreSQL ao RDS de ${var.environment}"
+  vpc_id      = var.vpc_id
 
   ingress {
-    description = "PostgreSQL"
+    description = "PostgreSQL a partir das faixas autorizadas"
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
     cidr_blocks = var.allowed_cidr_blocks
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = local.tags
