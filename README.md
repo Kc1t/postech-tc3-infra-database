@@ -13,7 +13,7 @@ Este repositório é responsável apenas pela camada de dados: instância RDS, s
 - Terraform >= 1.5
 - AWS: RDS PostgreSQL 16, Secrets Manager, VPC/Security Groups
 - Backend de state: S3
-- CI/CD: GitHub Actions com OIDC (sem chave estática)
+- CI/CD: GitHub Actions com a credencial de sessão do AWS Academy Learner Lab
 
 ## Arquitetura
 
@@ -76,6 +76,17 @@ outputs.tf     endpoint, porta, ARN do secret
 envs/          tfvars por ambiente (staging, prod)
 ```
 
+## Deploy ativo
+
+| O quê | Onde |
+|---|---|
+| Instância | `postech-tc3-prod-postgres` — RDS PostgreSQL 16, us-east-1, sem acesso público |
+| Credenciais | Secrets Manager: `postech-tc3-prod-db-credentials` |
+| API que usa o banco (Swagger) | https://tkh5cum8g8.execute-api.us-east-1.amazonaws.com/swagger/index.html |
+| Collection Postman | [`postman_collection.json`](https://github.com/Kc1t/postech-tc3-app/blob/main/postman_collection.json) no repositório da aplicação |
+
+A instância de produção foi criada na primeira validação no Learner Lab e importada para o state do Terraform (`terraform import`, chave `database/prod.tfstate`), com nome do security group, subnet group e senha preservados. Desde então quem a altera é o pipeline, no push da `main`.
+
 ## Execução local
 
 ```bash
@@ -95,10 +106,10 @@ Preencha o `vpc_id` real em `envs/*.tfvars` antes do primeiro apply.
 | Evento | Ação |
 |---|---|
 | Pull Request | `fmt`, `validate`, `tfsec` e `plan` em staging |
-| Push em `homolog` | `apply` em staging |
+| Push em `homolog` | `fmt`, `validate` e `tfsec`, sem apply — o banco é único e atende os dois namespaces (ADR-0010) |
 | Push em `main` | `apply` em produção |
 
-Secrets necessários no repositório: `AWS_ROLE_ARN` e `TF_STATE_BUCKET`.
+Secrets necessários no repositório: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` e `TF_STATE_BUCKET`.
 
 ## Outputs
 
@@ -119,6 +130,8 @@ As diferenças são derivadas de `var.environment` dentro do próprio `main.tf`,
 | Deletion protection | não | sim |
 | Final snapshot | pulado | obrigatório |
 | Classe da instância | `db.t3.micro` | `db.t3.small` |
+
+No Learner Lab, o `envs/prod.tfvars` sobrescreve a produção para Single-AZ (variável `multi_az`) e `db.t3.micro`, por orçamento. Para produção real, basta remover as duas linhas.
 
 ```mermaid
 flowchart LR

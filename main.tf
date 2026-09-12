@@ -11,6 +11,11 @@ locals {
 resource "random_password" "db" {
   length  = 24
   special = false
+
+  # A senha so muda de proposito (terraform apply -replace), nunca como efeito de mudar a configuracao.
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 data "aws_kms_alias" "rds" {
@@ -51,7 +56,8 @@ resource "aws_db_instance" "this" {
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.this.id]
   publicly_accessible    = false
-  multi_az               = var.environment == "prod"
+  multi_az               = coalesce(var.multi_az, var.environment == "prod")
+  apply_immediately      = true
 
   backup_retention_period = var.environment == "prod" ? 7 : 1
   skip_final_snapshot     = var.environment != "prod"
@@ -68,4 +74,10 @@ resource "aws_db_instance" "this" {
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
   tags = local.tags
+
+  # engine_version = "16" fixa a versao maior; a menor evolui pelo auto_minor_version_upgrade da AWS
+  # e nao deve virar diff (nem tentativa de voltar de 16.x para "16").
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 }
