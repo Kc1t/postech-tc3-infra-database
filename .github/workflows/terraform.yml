@@ -55,10 +55,12 @@ jobs:
 
       - run: terraform plan -var-file=envs/staging.tfvars
 
+  # Apply so na main. A infraestrutura e unica (ADR-0010): a homolog e validada pelo Validate,
+  # e um apply nela criaria um segundo banco.
   apply:
     name: Apply
     needs: validate
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'staging' }}
     steps:

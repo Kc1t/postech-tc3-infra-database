@@ -35,6 +35,12 @@ variable "db_allocated_storage" {
   default = 20
 }
 
+variable "multi_az" {
+  type        = bool
+  default     = null
+  description = "Sobrescreve o Multi-AZ derivado do ambiente; null segue a regra prod = Multi-AZ"
+}
+
 variable "allowed_cidr_blocks" {
   type    = list(string)
   default = ["10.0.0.0/8", "172.31.0.0/16"]

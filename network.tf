@@ -10,6 +10,11 @@ resource "aws_db_subnet_group" "this" {
   subnet_ids = data.aws_subnets.default.ids
 
   tags = local.tags
+
+  # Em prod o subnet group foi criado antes do Terraform e importado; nome e descricao originais ficam.
+  lifecycle {
+    ignore_changes = [name, description]
+  }
 }
 
 resource "aws_security_group" "this" {
@@ -26,4 +31,10 @@ resource "aws_security_group" "this" {
   }
 
   tags = local.tags
+
+  # Em prod o security group foi criado antes do Terraform e importado; trocar nome ou descricao
+  # recriaria o grupo com o banco preso a ele.
+  lifecycle {
+    ignore_changes = [name, description]
+  }
 }
