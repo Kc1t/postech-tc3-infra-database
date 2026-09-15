@@ -6,7 +6,7 @@ Tech Challenge Fase 3 — FIAP Pós Tech SOAT.
 
 ## Propósito
 
-Este repositório é responsável apenas pela camada de dados: instância RDS, subnet group, security group e as credenciais no Secrets Manager. O cluster Kubernetes vive em [`postech-tc3-infra-k8s`](https://github.com/Kc1t/postech-tc3-infra-k8s) e consome os outputs daqui.
+Este repositório é responsável apenas pela camada de dados: instância RDS, subnet group, security group e as credenciais no Secrets Manager. O cluster Kubernetes vive em [`postech-tc3-infra-k8s`](https://github.com/Kc1t/postech-tc3-infra-k8s). A aplicação e a Lambda recebem a string de conexão pelo GitHub Secret `POSTGRES_DSN`, montado com os outputs daqui.
 
 ## Tecnologias
 
@@ -14,6 +14,7 @@ Este repositório é responsável apenas pela camada de dados: instância RDS, s
 - AWS: RDS PostgreSQL 16, Secrets Manager, VPC/Security Groups
 - Backend de state: S3
 - CI/CD: GitHub Actions com a credencial de sessão do AWS Academy Learner Lab
+- Dockerfile: não se aplica — este repositório só provisiona infraestrutura
 
 ## Arquitetura
 
@@ -44,6 +45,8 @@ flowchart TB
 ```
 
 A instância **não é publicamente acessível**. O acesso vem de dentro da VPC: os pods do cluster e a Lambda de autenticação, que roda com `vpc_config` justamente para alcançar o banco sem sair para a internet.
+
+A justificativa da escolha do banco, o diagrama ER e a explicação dos relacionamentos estão em [`MODELAGEM_DE_DADOS.md`](https://github.com/Kc1t/postech-tc3-app/blob/main/docs/MODELAGEM_DE_DADOS.md), no repositório da aplicação, que é dona do schema (`AutoMigrate` do GORM). As decisões estão no [RFC-0002](https://github.com/Kc1t/postech-tc3-app/blob/main/docs/rfc/0002-banco-gerenciado.md) e no [ADR-0003](https://github.com/Kc1t/postech-tc3-app/blob/main/docs/adr/0003-postgresql.md).
 
 ### Ciclo de vida dos recursos
 
@@ -99,14 +102,14 @@ terraform plan  -var-file=envs/staging.tfvars
 terraform apply -var-file=envs/staging.tfvars
 ```
 
-Preencha o `vpc_id` real em `envs/*.tfvars` antes do primeiro apply.
+Os dois `envs/*.tfvars` apontam para a VPC padrão da conta do Learner Lab (`vpc-05abad32762eabfe1`); troque o `vpc_id` ao usar outra conta.
 
 ## Deploy
 
 | Evento | Ação |
 |---|---|
-| Pull Request | `fmt`, `validate`, `tfsec` e `plan` em staging |
-| Push em `homolog` | `fmt`, `validate` e `tfsec`, sem apply — o banco é único e atende os dois namespaces (ADR-0010) |
+| Pull Request | `fmt`, `validate`, `tfsec` e `plan` contra o state de produção |
+| Push em `homolog` | `fmt`, `validate`, `tfsec` e `plan` automático contra o state de produção, sem apply — o banco é único e atende os dois namespaces ([ADR-0010](https://github.com/Kc1t/postech-tc3-app/blob/main/docs/adr/0010-cluster-unico-dois-namespaces.md)) |
 | Push em `main` | `apply` em produção |
 
 Secrets necessários no repositório: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` e `TF_STATE_BUCKET`.
@@ -116,28 +119,28 @@ Secrets necessários no repositório: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KE
 | Output | Uso |
 |---|---|
 | `db_address` / `db_port` | conexão da aplicação |
-| `db_credentials_secret_arn` | consumido pelo app e pela lambda de autenticação |
-| `db_security_group_id` | referenciado pelo `infra-k8s` para liberar o tráfego do cluster |
+| `db_credentials_secret_arn` | onde estão usuário e senha para montar o `POSTGRES_DSN` dos GitHub Secrets do app e da lambda |
+| `db_security_group_id` | exposto para quem precisar liberar tráfego; hoje o security group libera a porta 5432 para os CIDRs da VPC (`allowed_cidr_blocks`) |
 
 ## Diferenças entre ambientes
 
-As diferenças são derivadas de `var.environment` dentro do próprio `main.tf`, não de arquivos separados:
+Backup, proteção e Multi-AZ são derivados de `var.environment` no `main.tf`. A classe vem de `db_instance_class` (padrão `db.t3.micro`), e `multi_az` pode sobrescrever a regra:
 
-| | staging | prod |
-|---|---|---|
-| Multi-AZ | não | sim |
-| Retenção de backup | 1 dia | 7 dias |
-| Deletion protection | não | sim |
-| Final snapshot | pulado | obrigatório |
-| Classe da instância | `db.t3.micro` | `db.t3.small` |
+| | staging | prod (regra do `main.tf`) | prod aplicado no Learner Lab |
+|---|---|---|---|
+| Multi-AZ | não | sim | **não** — `multi_az = false` no `envs/prod.tfvars` |
+| Retenção de backup | 1 dia | 7 dias | 7 dias |
+| Deletion protection | não | sim | sim |
+| Final snapshot | pulado | obrigatório | obrigatório |
+| Classe da instância | `db.t3.micro` | `db_instance_class` | `db.t3.micro` |
 
-No Learner Lab, o `envs/prod.tfvars` sobrescreve a produção para Single-AZ (variável `multi_az`) e `db.t3.micro`, por orçamento. Para produção real, basta remover as duas linhas.
+O `envs/prod.tfvars` força Single-AZ por orçamento. Para produção real, basta remover a linha `multi_az = false` e escolher uma classe maior.
 
 ```mermaid
 flowchart LR
     env{"var.environment"}
     env -->|staging| s["multi_az = false<br/>backup = 1 dia<br/>deletion_protection = false<br/>skip_final_snapshot = true"]
-    env -->|prod| p["multi_az = true<br/>backup = 7 dias<br/>deletion_protection = true<br/>skip_final_snapshot = false"]
+    env -->|prod| p["multi_az = true, salvo override<br/>(false no Learner Lab)<br/>backup = 7 dias<br/>deletion_protection = true<br/>skip_final_snapshot = false"]
 
     style p fill:#ffe0b2,stroke:#e80
 ```
@@ -149,7 +152,7 @@ flowchart LR
 | Item | US$/hora | US$/mês 24/7 |
 |---|---|---|
 | `db.t3.micro` Single-AZ | 0,018 | 13,14 |
-| 20 GB gp3 | — | 2,30 |
+| 20 GB gp2 | — | 2,30 |
 | Secrets Manager, 1 segredo | — | 0,40 |
 | **Total staging** | **~0,018** | **~15,84** |
 

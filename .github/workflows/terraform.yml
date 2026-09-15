@@ -31,10 +31,12 @@ jobs:
 
       - uses: aquasecurity/tfsec-action@v1.0.3
 
+  # Plan contra o state de producao: o banco e compartilhado pelos dois ambientes (ADR-0010),
+  # entao o PR e a homolog validam a mudanca contra o que existe de fato.
   plan:
     name: Plan
     needs: validate
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref_name == 'homolog'
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -51,12 +53,12 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - run: terraform init -backend-config="key=database/staging.tfstate" -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="region=${{ secrets.AWS_REGION }}"
+      - run: terraform init -backend-config="key=database/prod.tfstate" -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="region=${{ secrets.AWS_REGION }}"
 
-      - run: terraform plan -var-file=envs/staging.tfvars
+      - run: terraform plan -lock=false -var-file=envs/prod.tfvars
 
-  # Apply so na main. A infraestrutura e unica (ADR-0010): a homolog e validada pelo Validate,
-  # e um apply nela criaria um segundo banco.
+  # Apply so na main. O banco e unico (ADR-0010): um apply na homolog criaria um segundo banco,
+  # entao ela para no Plan acima.
   apply:
     name: Apply
     needs: validate
